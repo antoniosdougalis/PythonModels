@@ -3,7 +3,7 @@ Multilayer Perceptron for classifcation analysis
 The Model is built in #python using torch and keras modules
 
 The original data from the patients are not available. This is a three class multiclassification problem.
-Users can upload any data and modoy code accordingly
+Users can upload any data and modify code accordingly
 
 Brief Model details:
 4 input features;
