@@ -1,0 +1,203 @@
+# Written by Antonios Dougalis, antoniosdougalis@gmail.com
+# use freely under a MIT licence, Aug 2024
+
+# import python libraries
+import pandas as pd
+import numpy as np
+
+import torch
+import matplotlib.pyplot as plt
+
+from keras.models import Sequential
+from keras.layers import Input, Dense
+from keras.optimizers import Adam
+from tensorflow.keras.metrics import Accuracy, Precision, Recall, F1Score
+from tensorflow.keras import backend as K
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
+import tensorflow as tf
+
+# If the uploaded file name is 'yourfile.csv'
+file_path = '/content/Comb_TestSet.csv'
+
+# Load the CSV file into a DataFrame
+df = pd.read_csv(file_path)
+
+# Display the first few rows of the DataFrame
+df.head()
+
+# drop some columns from the df to keep only the super intresting features
+# Drop the first four columns using iloc
+df = df.iloc[:, 4:]
+df.head()
+
+# convert from pandas dataframe to tensor
+data = torch.tensor( df[df.columns[0:4]].values ).float()
+labels = torch.tensor( df[df.columns[4]].values, dtype=torch.long )
+
+# unique class of pathology in labels (returns a tensor containing the indeces 0,1,2)
+uniqueEls = torch.unique(labels, return_counts=False)
+print('data and labels loaded')
+
+# define ANN model
+def create_ANNmodel():
+  # define ANN model
+  model = Sequential()
+  model.add(Input(shape=(data.shape[1],)))  # Use Input layer to define the input shape
+  model.add(Dense(64, activation='relu'))
+  model.add(Dense(64, activation='relu')) # second hidden, no need to specify input dims, it knows it is a hidden layer automatically
+  model.add(Dense(3,activation='softmax'))
+
+  # Compile the model
+  adam_optimizer = Adam(learning_rate=lr) # OR leave optimizer = 'adam'  # NOTE: adam is an adaptive optizer in learning
+  model.compile(loss='sparse_categorical_crossentropy',  # Use sparse categorical_crossentropy for multi-class
+                optimizer= adam_optimizer,
+                metrics=metrics)
+  return model
+
+# run ANN using Keras modules
+
+# define metrics and add more metric if required
+metrics = [ 'accuracy']
+
+# Model summary (optional)
+# model.summary()
+
+# epochs per experiment and Num_exp of experiments
+lr = 0.0001 # define init learning rate for the optimizer
+max_epochs = 1500
+Num_exp = 100
+
+# initialise metrics: accuracy, precision recall, f1 scores
+trainAcc, testAcc,trainLoss, testLoss, trainPrec, testPrec, trainRec, testRec, trainF1, testF1 = [], [], [], [], [], [], [], [], [], []
+
+# loop over experiments
+for i in range(Num_exp):
+  random_state = i # initialise random state for the split of data to train and test
+
+  # split data new every time in loop
+  trainProp = 0.5
+  X_train, X_test, y_train,y_test = train_test_split(data,labels, train_size=trainProp, random_state=random_state)
+
+  # Convert your data to tf.data.Dataset
+  train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+  train_dataset = train_dataset.batch(batch_size=8, drop_remainder=True) # train in batches and drop the last sequence is less than batchsize
+
+  # initilise a new instance of the model (new weight initiliasation)
+  model = create_ANNmodel()
+
+  # Train the model
+  ANN = model.fit(train_dataset, epochs=max_epochs, verbose=0); # verbose controls the output on screen
+
+  # Make predictions
+  Y_pred_nn_train = model.predict(X_train)
+  Y_pred_nn_test = model.predict(X_test)
+
+  # Convert probabilities to class labels
+  Y_pred_nn_classes_train = np.argmax(Y_pred_nn_train, axis=1)
+  Y_pred_nn_classes_test = np.argmax(Y_pred_nn_test, axis=1)
+
+  # Calculate accuracy
+  score_Train = np.round(accuracy_score(y_train, Y_pred_nn_classes_train) * 100, 2)
+  score_Test = np.round(accuracy_score(y_test, Y_pred_nn_classes_test) * 100, 2)
+
+  # # append accuracy scores
+  trainAcc.append(score_Train.item())
+  testAcc.append(score_Test.item())
+
+  # # calculate precision
+  trainPrec.append( precision_score(y_train, Y_pred_nn_classes_train, average='weighted', zero_division=0) )
+  testPrec.append( precision_score(y_test, Y_pred_nn_classes_test, average='weighted', zero_division=0) )
+
+  # calculate recall
+  trainRec.append( recall_score(y_train, Y_pred_nn_classes_train, average='weighted', zero_division=0) )
+  testRec.append( recall_score(y_test, Y_pred_nn_classes_test, average='weighted', zero_division=0) )
+
+  # calculate F1 score
+  trainF1.append( f1_score(y_train, Y_pred_nn_classes_train, average='weighted', zero_division=0) )
+  testF1.append( f1_score(y_test, Y_pred_nn_classes_test, average='weighted', zero_division=0) )
+
+  # calculate loss and opther metric using keras
+  trloss, _  = model.evaluate(X_train, y_train, verbose=0)
+  teloss, _  = model.evaluate(X_test, y_test, verbose=0)
+
+  trainLoss.append(np.round(trloss,3))
+  testLoss.append(np.round(teloss,3))
+
+
+# Print the accuracy scores
+print(f'The average accuracy score after {Num_exp} is for test:  {np.round(np.mean(testAcc),2)} and for train {np.round(np.mean(trainAcc),2)}')
+
+# PLOTTING FOLLOWS BELOW
+
+# Moving Average filter
+def moving_average(data, window_size):
+    return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
+
+# Fourier Transform Filtering
+def fourier_transform_filter(data, threshold):
+    fft = np.fft.fft(data)
+    frequencies = np.fft.fftfreq(len(data))
+    fft[np.abs(frequencies) > threshold] = 0
+    return np.fft.ifft(fft)
+
+# filter the data to smooth out
+threshold = 0.1
+filt_testAcc = fourier_transform_filter(testAcc, threshold)
+filt_trainAcc = fourier_transform_filter(trainAcc, threshold)
+filt_trainLoss = fourier_transform_filter(trainLoss, threshold)
+filt_testLoss = fourier_transform_filter(testLoss, threshold)
+filt_trainPrec = fourier_transform_filter(trainPrec, threshold)
+filt_testPrec = fourier_transform_filter(testPrec, threshold)
+filt_trainRec = fourier_transform_filter(trainRec, threshold)
+filt_testRec = fourier_transform_filter(testRec, threshold)
+filt_trainF1 = fourier_transform_filter(trainF1, threshold)
+filt_testF1 = fourier_transform_filter(testF1, threshold)
+
+
+fig, ax = plt.subplots(3,2, figsize=(10,10))
+fig.suptitle(f'ANN Classification Performance on patients after {Num_exp} independent model runs', fontsize=16)
+
+ax[0,0].plot(filt_trainAcc, marker='s', markerfacecolor='blue', label='Train')
+ax[0,0].plot(filt_testAcc, marker='s', markerfacecolor='orange', label='Test')
+ax[0,0].set_xlabel('Number of Experiments')
+ax[0,0].set_ylabel('Accuracy')
+ax[0,0].legend(['Train', 'Test'])
+ax[0,0].set_title(f'mean Accuracy: {np.round(np.mean(np.array(trainAcc)),2)} train vs {np.round(np.mean(np.array(testAcc)),2)} test ')
+
+ax[0,1].plot(filt_trainLoss, marker='s', markerfacecolor='blue', label='Train')
+ax[0,1].plot(filt_testLoss, marker='s', markerfacecolor='orange', label='Test')
+ax[0,1].set_xlabel('Number of Experiments')
+ax[0,1].set_ylabel('Loss Function')
+ax[0,1].legend(['Train', 'Test'])
+ax[0,1].set_title(f'mean Loss: {np.round(np.mean(np.array(trainLoss)),2)} train vs {np.round(np.mean(np.array(testLoss)),2)} test ')
+
+ax[1,0].plot(filt_trainPrec, marker='s', markerfacecolor='blue', label='Train')
+ax[1,0].plot(filt_testPrec, marker='s', markerfacecolor='orange', label='Test')
+ax[1,0].set_xlabel('Number of Experiments')
+ax[1,0].set_ylabel('Precision')
+ax[1,0].legend(['Train', 'Test'])
+ax[1,0].set_title(f'mean Precision: {np.round(np.mean(np.array(trainPrec)),2)} train vs {np.round(np.mean(np.array(testPrec)),2)} test ')
+
+ax[1,1].plot(filt_trainRec, marker='s', markerfacecolor='blue', label='Train')
+ax[1,1].plot(filt_testRec, marker='s', markerfacecolor='orange', label='Test')
+ax[1,1].set_xlabel('Number of Experiments')
+ax[1,1].set_ylabel('Recall')
+ax[1,1].legend(['Train', 'Test'])
+ax[1,1].set_title(f'mean Recall: {np.round(np.mean(np.array(trainRec)),2)} train vs {np.round(np.mean(np.array(testRec)),2)} test ')
+
+ax[2,0].plot(filt_trainF1, marker='s', markerfacecolor='blue', label='Train')
+ax[2,0].plot(filt_testF1, marker='s', markerfacecolor='orange', label='Test')
+ax[2,0].set_xlabel('Number of Experiments')
+ax[2,0].set_ylabel('F1 score')
+ax[2,0].legend(['Train', 'Test'])
+ax[2,0].set_title(f'mean F1 score: {np.round(np.mean(np.array(trainF1)),2)} train vs {np.round(np.mean(np.array(testF1)),2)} test ')
+
+ax[2,1].plot(np.array(filt_testAcc)-np.array(filt_trainAcc), marker='s', markerfacecolor='blue', label='Train')
+ax[2,1].plot( [0, Num_exp], [0,0], 'k--')
+ax[2,1].set_xlabel('Number of Experiments')
+ax[2,1].set_ylabel('Deviation of Test-Train Accuracy')
+ax[2,1].legend(['Train -Test'])
+
+plt.tight_layout()
