@@ -1,3 +1,5 @@
+Multilayer Perceptron for classifcation analysis
+
 The Model is built in #python using torch and keras modules
 
 The original data from the patients are not available. This is a three class multiclassification problem.
@@ -12,4 +14,4 @@ Adaptive Adam optimised learning rate; Binary cross entropy loss function with t
 Split data to Train and test data at 0.8/0.2 proportion, segmentation of train data in batches (batch size =8) for 1500 epochs. 
 Repeat split of data and independently model fit for 100 times (Num_experiments).
 
-Code deposited in GitHub: https://github.com/antoniosdougalis/PythonModels
+antoniosdougalis@gmail.com
